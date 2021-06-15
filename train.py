@@ -26,11 +26,12 @@ if(onlysyn):
 else:train_dataset = torch.utils.data.ConcatDataset( [train_dataset1, train_dataset2])
 def _init_fn(worker_id):np.random.seed(worker_id)
 def _init_fn2(worker_id):np.random.seed(worker_id**2+2)
-train_loader = torch.utils.data.DataLoader(train_dataset,batch_size=8,num_workers=4, shuffle=True,worker_init_fn=_init_fn)
+train_loader = torch.utils.data.DataLoader(train_dataset,batch_size=32,num_workers=4, shuffle=True,worker_init_fn=_init_fn)
 print('train_loader',len(train_loader))
-
-mano_right = MANO_SMPL('/home/csc/MANO-hand-model-toolkit/mano/models/MANO_RIGHT.pkl', ncomps=45, oriorder=True,
-                           device='cuda',userotJoints=True)
+manoPath='/home/csc/MANO-hand-model-toolkit/mano/models/MANO_RIGHT.pkl'
+if not os.path.exists(manoPath):
+    manoPath = '/home/shicheng/MANO-hand-model-toolkit/mano/models/MANO_RIGHT.pkl'
+mano_right = MANO_SMPL(manoPath, ncomps=45, oriorder=True,device='cuda',userotJoints=True)
 
 mylist=[]
 mylist.append({'params':encoderRGB.parameters()})
@@ -87,7 +88,6 @@ for epoch in range(80):
 
         pose_loss_syn,eucLoss_syn=pose_loss(pose_rgb[mask==1],pose_gt[mask==1],scale[mask==1])
         pose_loss_real,eucLoss_real=pose_loss(pose_rgb[mask!=1],pose_gt[mask!=1],scale[mask!=1])
-        pose_loss_sum = torch.mean(pose_loss_syn)
         #pose_loss_sum = torch.mean(eucLoss_syn)
 
         joints=pose_rgb*scale+root
@@ -120,16 +120,15 @@ for epoch in range(80):
         #print(cloud)
         cdloss,cdlossEud=cloud_dis(vertexPre,cloud,scale)
 
-        #loss = 0.0001*latent_loss_sum + pose_loss_sum#+cdloss*1e-5+bioLoss*1e-5+pose_loss_bone
-        loss = pose_loss_sum
+        loss = 0.0001*latent_loss_sum + pose_loss_syn#+cdloss*1e-5+bioLoss*1e-5+pose_loss_bone
         #loss = 0.0001*latent_loss_sum + cloudRec_loss_sum
-        losshelp.add("loss",float(loss))
-        losshelp.add("epeSyn",float(eucLoss_syn)*1000)
-        losshelp.add("epeReal",float(eucLoss_real)*1000)
-        losshelp.add("cdloss",float(cdlossEud)*1000)
-        losshelp.add("bioLoss", float(bioEudloss)*1000)#already scaled to milimeter
-        losshelp.add("eucLoss_bone",float(eucLoss_bone)*1000)
-        losshelp.add("Greedymatchloss",float(Greedymatchloss)*1000)
+        dicloss={"loss":float(loss),"syn epe":float(eucLoss_syn)*1000,"syn loss":float(pose_loss_syn),
+                 "real epe":float(eucLoss_real)*1000,"real loss":float(pose_loss_real),
+                 "cd dis":float(cdlossEud)*1000,"cd loss":float(cdloss),
+                 "bio dis":float(bioEudloss)*1000,"bio loss":float(bioLoss),
+                 "bone dis":float(eucLoss_bone)*1000,"bone loss":float(pose_loss_bone),
+                 "Greedymatch dis":float(Greedymatchloss)*1000}
+        losshelp.add(dicloss)
 
         if(idx%5==0):
             print('epoch:{} iteration:{}'.format(epoch,idx))

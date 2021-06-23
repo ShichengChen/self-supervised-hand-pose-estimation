@@ -42,10 +42,10 @@ trans3 = np.array([[ 0.54834784, -0.79624552, -0.25555373, -0.03479103],
 trans=[trans0,trans1,trans2,trans3]
 biolayer = BiomechanicalLayer(fingerPlaneLoss=True, fingerFlexLoss=True, fingerAbductionLoss=True)
 mano_right = MANO_SMPL(manoPath, ncomps=45, oriorder=True,device='cpu',userotJoints=True)
-pose=torch.tensor([[0,0,3.14],[0,0,3.14],[0,0,3.14],[0,0,0],[0,0,0],
+pose=torch.tensor([[3.14,0,-3.14],[1.57,0,3.14],[0,0,3.14],[0,0,0],[0,0,0],
                        [0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],
                        [0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]],dtype=torch.float32,requires_grad=True)
-pose=torch.randn([45],dtype=torch.float32,requires_grad=True)
+#pose=torch.randn([45],dtype=torch.float32,requires_grad=True)
 optimizer = torch.optim.Adam([pose], lr=1e-2,weight_decay=1e-5)
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
 out = cv2.VideoWriter('bio.avi', fourcc, 20.0, (640*4,480))
@@ -53,7 +53,8 @@ for epoch in range(300):
 
     rootr = torch.zeros([3],dtype=torch.float32)*3.14*2-3.14
     vertex_gt, joint_gt = mano_right.get_mano_vertices(rootr.view(1, 1, 3),
-                                                       pose.view(1, 45)*3.14-3.14/2,
+                                                       #pose.view(1, 45)*3.14-3.14/2,
+                                                       pose.view(1, 45),
                                                        torch.zeros([10],dtype=torch.float32).view(1, 10),
                                                        torch.tensor([1],dtype=torch.float32).view(1, 1),
                                                        torch.tensor([[0, 0, 0]],dtype=torch.float32).view(1, 3),
@@ -73,27 +74,25 @@ for epoch in range(300):
         return image
 
 
-    # if(epoch%100==0):
-    #     v = trimesh.Trimesh(vertices=vertex_gt.detach().numpy()[0], faces=mano_right.faces, vertex_colors=vertex_colors)
-    #     scene = trimesh.Scene(v)
-    #     scene.camera_transform = trans[0]
-    #     print('before scene.camera', scene.camera)
-    #     print(scene.camera_transform)
-    #     scene.show()
-    #     print('scene.camera',scene.camera)
-    #     print(scene.camera_transform)
+    if(epoch%100==0):
+        v = trimesh.Trimesh(vertices=vertex_gt.detach().numpy()[0], faces=mano_right.faces, vertex_colors=vertex_colors)
+        scene = trimesh.Scene(v)
+        scene.camera_transform = trans[0]
+        # print('before scene.camera', scene.camera)
+        # print(scene.camera_transform)
+        scene.show()
+        # print('scene.camera',scene.camera)
+        # print(scene.camera_transform)
 
     imgs=[]
-    for vi in range(4):
+    for vi in range(1):
         #print(vi)
         imgs.append(getview(vi).copy())
 
-    #v.show()
     imgs=np.hstack(imgs)
     out.write(imgs)
-    #cv2.imshow('frame', imgs)
-    #print(imgs.shape)
-    #cv2.waitKey(1)
+    cv2.imshow('frame', imgs)
+    cv2.waitKey(1)
 
     bioloss,eucbio=biolayer(joint_gt,torch.tensor([1],dtype=torch.float32))
     bioloss*=1000

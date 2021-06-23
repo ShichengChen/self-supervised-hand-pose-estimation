@@ -1,9 +1,21 @@
+import argparse
+
+parser = argparse.ArgumentParser(description='hyperparameters.')
+parser.add_argument('-c','--card', type=int, default=0,
+                    help='nvidia smi idx')
+parser.add_argument('-b','--bio', action='store_true',
+                    help='use bio constraint or not')
+parser.add_argument('-f','--flex',action='store_true',
+                    help='use flex loss of bio constraint, default is not use')
+args = parser.parse_args()
+#print(args.card,args.bio,args.flex)
+
 import os
 import platform
 if (platform.node()=='csc-G7-7590'):
     os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 else:
-    os.environ["CUDA_VISIBLE_DEVICES"] = '3'
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(args.card)
 
 import torchvision.models as models
 from torch.optim.lr_scheduler import MultiStepLR
@@ -17,8 +29,6 @@ from cscPy.mano.network.manoArmLayer import MANO_SMPL
 from cscPy.mano.network.biomechanicalLoss import BiomechanicalLayer
 from cscPy.globalCamera.camera import CameraIntrinsics,perspective_projection
 from cscPy.globalCamera.util import fetch_all_sequences,load_rgb_maps,load_depth_maps,get_cameras_from_dir,visualize_better_qulity_depth_map
-
-
 import cv2
 from cscPy.mano.network.utils import *
 
@@ -52,14 +62,18 @@ mano_right = MANO_SMPL(manoPath, ncomps=45, oriorder=True,device='cuda',userotJo
 mylist=[]
 mylist.append({'params':encoderRGB.parameters()})
 mylist.append({'params':decoderPose.parameters()})
-optimizer = torch.optim.Adam(mylist, lr=1e-3)
+lr=1e-4
+optimizer = torch.optim.Adam(mylist, lr=lr)
 scheduler = MultiStepLR(optimizer, milestones=[30,60], gamma=0.1)
 
 def getLatentLoss(z_mean, z_stddev, goalStd=1.0, eps=1e-9):
     latent_loss = 0.5 * torch.sum(z_mean**2 + z_stddev**2 - torch.log(z_stddev**2)  - goalStd, 1)
     return latent_loss
-biolayer = BiomechanicalLayer(fingerPlaneLoss=True,fingerFlexLoss=True, fingerAbductionLoss=True)
-losshelp=LossHelper()
+#biolayer = BiomechanicalLayer(fingerPlaneLoss=True,fingerFlexLoss=True, fingerAbductionLoss=True)
+biolayer = BiomechanicalLayer(fingerPlaneLoss=True, fingerAbductionLoss=True,fingerFlexLoss=args.flex)
+summary="lr:"+str(lr)+" "+__file__+" "+str(args.card)+" usebio:"+str(args.bio)+" useflex:"+str(args.flex)
+print('summary',summary)
+losshelp=LossHelper(useBar=True,usetb=True,summary=summary)
 
 
 
@@ -67,7 +81,7 @@ losshelp=LossHelper()
 from tqdm import tqdm
 
 for epoch in tqdm(range(80)):
-
+    losshelp.initForEachEpoch(len(train_loader),summaryVariable=['epe','loss'])
     for idx, inp in enumerate(train_loader):
         img,cloud,pose_gt,scale,root,mask=inp['img'].cuda(),inp['cloud'].cuda(),inp['pose3d'].cuda(),inp['scale'].cuda(),\
                                           inp['root'].cuda(),inp['mask'].cuda().reshape(-1)
@@ -155,19 +169,21 @@ for epoch in tqdm(range(80)):
 
         loss = 0.0001 * latent_loss_sum + pose_loss_syn + \
                synpose_loss_bone + realpose_loss_bone + \
-               synBioLoss + realBioLoss + \
+               synBioLoss +\
                realcdloss + syncdloss#\
+        if(args.bio):loss+=realBioLoss
                # +pose_loss_real#for test
         # loss = 0.0001*latent_loss_sum + cloudRec_loss_sum
-        dicloss = {"loss": float(loss), "syn epe": float(eucLoss_syn) * 1000, "syn loss": float(pose_loss_syn),
-                   "syn cd dis": float(syncdlossEud) * 1000, "syn cd loss": float(syncdloss),
-                   "syn bio dis": float(synBioEudloss) * 1000, "syn bio loss": float(synBioLoss),
-                   "syn bone dis": float(syneucLoss_bone) * 1000, "syn bone loss": float(synpose_loss_bone),
-                   "Greedymatch dis": float(Greedymatchloss) * 1000,
-                   "real epe": float(eucLoss_real) * 1000, "real loss": float(pose_loss_real),
-                   "real cd dis": float(realcdlossEud) * 1000, "real cd loss": float(realcdloss),
-                   "real bio dis": float(realBioEudloss) * 1000, "real bio loss": float(realBioLoss),
-                   "real bone dis": float(realeucLoss_bone) * 1000, "real bone loss": float(realpose_loss_bone),
+        dicloss = {'epoch':int(epoch),'iter':int(idx),
+                 "loss":float(loss),"_epe":float(eucLoss_syn)*1000,"_lepe":float(pose_loss_syn),
+                 "_dcd":float(syncdlossEud)*1000,"_lcd":float(syncdloss),
+                 "_dbio":float(synBioEudloss)*1000,"_lbio":float(synBioLoss),
+                 "_dbone":float(syneucLoss_bone)*1000,"_lbone":float(synpose_loss_bone),
+                 "_dgmatch":float(Greedymatchloss)*1000,
+                   "epe": float(eucLoss_real) * 1000, "lepe": float(pose_loss_real),
+                   "dcd": float(realcdlossEud) * 1000, "lcd": float(realcdloss),
+                   "dbio": float(realBioEudloss) * 1000, "lbio": float(realBioLoss),
+                   "dbone": float(realeucLoss_bone) * 1000, "lbone": float(realpose_loss_bone),
                    }
         losshelp.add(dicloss)
 
@@ -183,7 +199,7 @@ for epoch in tqdm(range(80)):
     # print('scheduler.step()')
     scheduler.step()
     losshelp.show()
-    losshelp.clear()
+    losshelp.finish()
 
     print('save model')
     torch.save({

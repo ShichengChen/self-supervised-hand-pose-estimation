@@ -3,7 +3,7 @@ import platform
 if (platform.node()=='csc-G7-7590'):
     os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 else:
-    os.environ["CUDA_VISIBLE_DEVICES"] = '3'
+    os.environ["CUDA_VISIBLE_DEVICES"] = '2'
 
 import torchvision.models as models
 from torch.optim.lr_scheduler import MultiStepLR
@@ -49,14 +49,17 @@ mano_right = MANO_SMPL(manoPath, ncomps=45, oriorder=True,device='cuda',userotJo
 mylist=[]
 mylist.append({'params':encoderRGB.parameters()})
 mylist.append({'params':decoderPose.parameters()})
-optimizer = torch.optim.Adam(mylist, lr=1e-4)
+lr=1e-4
+optimizer = torch.optim.Adam(mylist, lr=lr)
 scheduler = MultiStepLR(optimizer, milestones=[30,60], gamma=0.1)
 
 def getLatentLoss(z_mean, z_stddev, goalStd=1.0, eps=1e-9):
     latent_loss = 0.5 * torch.sum(z_mean**2 + z_stddev**2 - torch.log(z_stddev**2)  - goalStd, 1)
     return latent_loss
 biolayer = BiomechanicalLayer(fingerPlaneLoss=True,fingerFlexLoss=True, fingerAbductionLoss=True)
-losshelp=LossHelper()
+summary="lr:"+str(lr)+" "+__file__+" "
+print('summary',summary)
+losshelp=LossHelper(useBar=True,usetb=True,summary=summary)
 
 
 

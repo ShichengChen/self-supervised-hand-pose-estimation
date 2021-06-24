@@ -6,7 +6,13 @@ parser.add_argument('-c','--card', type=int, default=0,
 parser.add_argument('-b','--bio', action='store_true',
                     help='use bio constraint or not')
 parser.add_argument('-f','--flex',action='store_true',
-                    help='use flex loss of bio constraint, default is not use')
+                    help='use flex loss of bio constraint')
+parser.add_argument('-ck','--checkpoint',action='store_true',
+                    help='use checkpoint or not')
+parser.add_argument('-co','--comment',type=str,default="",
+                    help='use checkpoint or not')
+parser.add_argument('-t','--tensorboard',action='store_false',
+                    help='use tensorboard or not')
 args = parser.parse_args()
 #print(args.card,args.bio,args.flex)
 
@@ -36,9 +42,14 @@ from cscPy.mano.network.utils import *
 
 encoderRGB=encoderRGB().cuda()
 decoderPose=decPoseNet().cuda()
+lr=1e-4
+summary="lr:"+str(lr)+" "+__file__+" "+str(args.card)+" usebio:"+str(args.bio)+\
+        " useflex:"+str(args.flex)+" checkpoint:"+str(args.checkpoint)+" comment:"+args.comment
+print('summary',summary)
+losshelp=LossHelper(useBar=True,usetb=args.tensorboard,summary=summary)
 
-checkpointpath='./pretrain/'+platform.node()+'rgb2poseSyn.pt'
-if os.path.exists(checkpointpath):
+checkpointpath='./pretrain/'+platform.node()+'rgb2poseSyn7.pt'
+if os.path.exists(checkpointpath) and args.checkpoint:
     checkpoint = torch.load(checkpointpath)
     print("use check point", checkpoint['epoch'])
     decoderPose.load_state_dict(checkpoint['decoderPose'])
@@ -47,22 +58,17 @@ onlysyn=False
 
 train_dataset1 = ManoSynthesizer()
 train_dataset2 = MVDataloader()
-if(onlysyn):
-    train_dataset = torch.utils.data.ConcatDataset( [train_dataset1, train_dataset1])
+if(onlysyn):train_dataset = torch.utils.data.ConcatDataset( [train_dataset1, train_dataset1])
 else:train_dataset = torch.utils.data.ConcatDataset( [train_dataset1, train_dataset2])
 def _init_fn(worker_id):np.random.seed(worker_id)
 def _init_fn2(worker_id):np.random.seed(worker_id**2+2)
 train_loader = torch.utils.data.DataLoader(train_dataset,batch_size=16,num_workers=4, shuffle=True,worker_init_fn=_init_fn)
 print('train_loader',len(train_loader))
-manoPath='/home/csc/MANO-hand-model-toolkit/mano/models/MANO_RIGHT.pkl'
-if not os.path.exists(manoPath):
-    manoPath = '/home/shicheng/MANO-hand-model-toolkit/mano/models/MANO_RIGHT.pkl'
 mano_right = MANO_SMPL(manoPath, ncomps=45, oriorder=True,device='cuda',userotJoints=True)
 
 mylist=[]
 mylist.append({'params':encoderRGB.parameters()})
 mylist.append({'params':decoderPose.parameters()})
-lr=1e-4
 optimizer = torch.optim.Adam(mylist, lr=lr)
 scheduler = MultiStepLR(optimizer, milestones=[30,60], gamma=0.1)
 
@@ -71,9 +77,7 @@ def getLatentLoss(z_mean, z_stddev, goalStd=1.0, eps=1e-9):
     return latent_loss
 #biolayer = BiomechanicalLayer(fingerPlaneLoss=True,fingerFlexLoss=True, fingerAbductionLoss=True)
 biolayer = BiomechanicalLayer(fingerPlaneLoss=True, fingerAbductionLoss=True,fingerFlexLoss=args.flex)
-summary="lr:"+str(lr)+" "+__file__+" "+str(args.card)+" usebio:"+str(args.bio)+" useflex:"+str(args.flex)
-print('summary',summary)
-losshelp=LossHelper(useBar=True,usetb=True,summary=summary)
+
 
 
 
@@ -198,15 +202,15 @@ for epoch in tqdm(range(80)):
 
     # print('scheduler.step()')
     scheduler.step()
-    losshelp.show()
     losshelp.finish()
 
-    print('save model')
+    savepath='./models/'+platform.node()+'rgb2pose.pt'
+    print('save model',savepath)
     torch.save({
         'epoch': epoch,
         'encoderRGB': encoderRGB.state_dict(),
         'decoderPose': decoderPose.state_dict(),
-        'optimizer': optimizer.state_dict()}, './models/'+platform.node()+'rgb2pose.pt')
+        'optimizer': optimizer.state_dict()}, savepath)
 
     #print(epoch, 'epoch mean epeloss', np.mean(epe)*1000)
     # aveloss,epe=[],[]

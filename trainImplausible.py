@@ -40,17 +40,18 @@ trans3 = np.array([[ 0.54834784, -0.79624552, -0.25555373, -0.03479103],
      [ 0.83614252,  0.51714087,  0.18284152,  0.08128843],
      [ 0.        ,  0.        ,  0.        ,  1.        ]])
 trans=[trans0,trans1,trans2,trans3]
-biolayer = BiomechanicalLayer(fingerPlaneLoss=True, fingerFlexLoss=True, fingerAbductionLoss=True)
+#biolayer = BiomechanicalLayer(fingerPlaneLoss=True, fingerFlexLoss=True, fingerAbductionLoss=True)
 mano_right = MANO_SMPL(manoPath, ncomps=45, oriorder=True,device='cpu',userotJoints=True)
+viewnum=1
 pose=torch.tensor([[3.14,0,-3.14],[1.57,0,3.14],[0,0,3.14],[0,0,0],[0,0,0],
                        [0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0],
                        [0,0,0],[0,0,0],[0,0,0],[0,0,0],[0,0,0]],dtype=torch.float32,requires_grad=True)
-#pose=torch.randn([45],dtype=torch.float32,requires_grad=True)
-optimizer = torch.optim.Adam([pose], lr=1e-2,weight_decay=1e-5)
+# pose=torch.randn([45],dtype=torch.float32,requires_grad=True)
+optimizer = torch.optim.Adam([pose], lr=0.02)
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
-out = cv2.VideoWriter('bio.avi', fourcc, 20.0, (640*4,480))
-for epoch in range(300):
-
+out = cv2.VideoWriter('bio.avi', fourcc, 20.0, (viewnum*640,480))
+for epoch in range(400):
+    torch.autograd.set_detect_anomaly(True)
     rootr = torch.zeros([3],dtype=torch.float32)*3.14*2-3.14
     vertex_gt, joint_gt = mano_right.get_mano_vertices(rootr.view(1, 1, 3),
                                                        #pose.view(1, 45)*3.14-3.14/2,
@@ -85,7 +86,7 @@ for epoch in range(300):
         # print(scene.camera_transform)
 
     imgs=[]
-    for vi in range(1):
+    for vi in range(viewnum):
         #print(vi)
         imgs.append(getview(vi).copy())
 
@@ -94,8 +95,13 @@ for epoch in range(300):
     cv2.imshow('frame', imgs)
     cv2.waitKey(1)
 
-    bioloss,eucbio=biolayer(joint_gt,torch.tensor([1],dtype=torch.float32))
+    _,_,_,loss=mano_right.matchTemplate2JointsWithConstraint(joint_gt)
+    # loss = {"flexloss": flexloss / 15, "abductionloss": abductionloss / 4,
+    #         'flexEuc': flexEuc / 15, 'abductionEuc': abductionEuc / 4}
+
+    bioloss=loss['flexloss']+loss['abductionloss']
     bioloss*=1000
+    #bioloss+=torch.sum(pose**2)*1e-2
     optimizer.zero_grad()
     bioloss.backward(retain_graph=True)
     optimizer.step()

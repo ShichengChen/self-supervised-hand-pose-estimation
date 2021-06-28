@@ -11,7 +11,7 @@ parser.add_argument('-ck','--checkpoint',action='store_true',
                     help='use checkpoint or not')
 parser.add_argument('-co','--comment',type=str,default="",
                     help='use checkpoint or not')
-parser.add_argument('-t','--tensorboard',action='store_false',
+parser.add_argument('-t','--tensorboard',action='store_true',
                     help='use tensorboard or not')
 args = parser.parse_args()
 #print(args.card,args.bio,args.flex)
